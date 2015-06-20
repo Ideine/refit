@@ -495,6 +495,7 @@ namespace Refit
 
             // get names for multipart attachments
             AttachmentNameMap = new Dictionary<int, string>();
+            AttachmentDescriptionMap = new Dictionary<int, DataAttachmentDescriptionAttribute>();
             if (IsMultipart) {
                 for (int i = 0; i < parameterList.Count; i++) {
                     if (ParameterMap.ContainsKey(i) || HeaderParameterMap.ContainsKey(i)) {
