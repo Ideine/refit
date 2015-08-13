@@ -121,10 +121,10 @@ namespace Refit
     [AttributeUsage(AttributeTargets.Parameter | AttributeTargets.Property)]
     public class DataAttachmentDescriptionAttribute : Attribute
     {
-        public string Name { get; protected set; }
-        public string Filename { get; protected set; }
-        public string ContentType { get; protected set; }
-        public string DispositionType { get; protected set; }
+        public string Name { get; set; }
+        public string Filename { get; set; }
+        public string ContentType { get; set; }
+        public string DispositionType { get; set; }
         public DataAttachmentDescriptionAttribute(string name, string filename, string contentType, string dispositionType)
         {
             this.Name = name;

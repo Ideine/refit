@@ -86,6 +86,11 @@ namespace Refit
                         continue;
                     }
 
+                    // if part of AttachmentDescription, will be used later
+                    if (restMethod.AttachmentDescriptionParameterMap.ContainsKey(i))
+                        continue;
+
+
                     // if marked as body, add to content
                     if (restMethod.BodyParameterInfo != null && restMethod.BodyParameterInfo.Item2 == i) {
                         var streamParam = paramList[i] as Stream;
@@ -130,15 +135,41 @@ namespace Refit
                         continue;
                     }
 
+
+
                     // we are in a multipart method, add the part to the content
                     // the parameter name should be either the attachment name or the parameter name (as fallback)
                     DataAttachmentDescriptionAttribute attachementDescr = null;
-                    if (restMethod.AttachmentDescriptionMap.TryGetValue(i, out attachementDescr))
-                    {
+                    if (restMethod.AttachmentDescriptionMap.TryGetValue(i, out attachementDescr)) {
+                        foreach (var attachmentDescParamKey in restMethod.AttachmentDescriptionParameterMap.Keys) {
+
+                            attachementDescr.Name = Regex.Replace(
+                                    attachementDescr.Name,
+                                    "{" + restMethod.AttachmentDescriptionParameterMap[attachmentDescParamKey] + "}",
+                                    settings.UrlParameterFormatter.Format(paramList[attachmentDescParamKey], restMethod.ParameterInfoMap[attachmentDescParamKey]),
+                                    RegexOptions.IgnoreCase);
+
+                            attachementDescr.Filename = Regex.Replace(
+                                attachementDescr.Filename,
+                                "{" + restMethod.AttachmentDescriptionParameterMap[attachmentDescParamKey] + "}",
+                                settings.UrlParameterFormatter.Format(paramList[attachmentDescParamKey], restMethod.ParameterInfoMap[attachmentDescParamKey]),
+                                RegexOptions.IgnoreCase);
+
+                            attachementDescr.ContentType = Regex.Replace(
+                                attachementDescr.ContentType,
+                                "{" + restMethod.AttachmentDescriptionParameterMap[attachmentDescParamKey] + "}",
+                                settings.UrlParameterFormatter.Format(paramList[attachmentDescParamKey], restMethod.ParameterInfoMap[attachmentDescParamKey]),
+                                RegexOptions.IgnoreCase);
+
+                            attachementDescr.DispositionType = Regex.Replace(
+                                attachementDescr.DispositionType,
+                                "{" + restMethod.AttachmentDescriptionParameterMap[attachmentDescParamKey] + "}",
+                                settings.UrlParameterFormatter.Format(paramList[attachmentDescParamKey], restMethod.ParameterInfoMap[attachmentDescParamKey]),
+                                RegexOptions.IgnoreCase);
+                        }
+
                         addMultipartItem(multiPartContent, attachementDescr, paramList[i]);
-                    }
-                    else
-                    {
+                    } else {
                         string itemName;
                         if (!restMethod.AttachmentNameMap.TryGetValue(i, out itemName)) itemName = restMethod.QueryParameterMap[i];
                         addMultipartItem(multiPartContent, itemName, paramList[i]);
@@ -454,6 +485,7 @@ namespace Refit
         public Tuple<BodySerializationMethod, int> BodyParameterInfo { get; set; }
         public Dictionary<int, string> QueryParameterMap { get; set; }
         public Dictionary<int, string> AttachmentNameMap { get; set; }
+        public Dictionary<int, string> AttachmentDescriptionParameterMap { get; set; }
         public Dictionary<int, ParameterInfo> ParameterInfoMap { get; set; }
         public Type ReturnType { get; set; }
         public Type SerializedReturnType { get; set; }
@@ -495,6 +527,7 @@ namespace Refit
 
             // get names for multipart attachments
             AttachmentNameMap = new Dictionary<int, string>();
+            AttachmentDescriptionParameterMap = new Dictionary<int, string>();
             AttachmentDescriptionMap = new Dictionary<int, DataAttachmentDescriptionAttribute>();
             if (IsMultipart) {
                 for (int i = 0; i < parameterList.Count; i++) {
@@ -503,8 +536,11 @@ namespace Refit
                     }
 
                     var attachementDescr = getAttachmentDescriptionAttributeForParameter(parameterList[i]);
-                    if (attachementDescr != null)
+                    if (attachementDescr != null) {
                         AttachmentDescriptionMap[i] = attachementDescr;
+                        fillAttachmentDescriptionParameterMap(attachementDescr, parameterList);
+                        continue;
+                    }
 
                     var attachmentName = getAttachmentNameForParameter(parameterList[i]);
                     if (attachmentName == null) continue;
@@ -514,8 +550,8 @@ namespace Refit
             }
 
             QueryParameterMap = new Dictionary<int, string>();
-            for (int i=0; i < parameterList.Count; i++) {
-                if (ParameterMap.ContainsKey(i) || HeaderParameterMap.ContainsKey(i) || (BodyParameterInfo != null && BodyParameterInfo.Item2 == i) || AttachmentNameMap.ContainsKey(i)) {
+            for (int i = 0; i < parameterList.Count; i++) {
+                if (ParameterMap.ContainsKey(i) || HeaderParameterMap.ContainsKey(i) || (BodyParameterInfo != null && BodyParameterInfo.Item2 == i) || AttachmentNameMap.ContainsKey(i) || AttachmentDescriptionMap.ContainsKey(i)) {
                     continue;
                 }
 
@@ -592,6 +628,34 @@ namespace Refit
                 .FirstOrDefault();
 
             return descrAttr;
+        }
+
+        void fillAttachmentDescriptionParameterMap(DataAttachmentDescriptionAttribute attachmentDescription, List<ParameterInfo> parameterInfo)
+        {
+            var descriptionParts = new string[] { attachmentDescription.Name, attachmentDescription.Filename, attachmentDescription.ContentType, attachmentDescription.DispositionType };
+
+
+            var parameterizedParts = descriptionParts
+                .SelectMany(x => parameterRegex.Matches(x).Cast<Match>())
+                .ToList();
+
+            if (parameterizedParts.Count == 0) {
+                return;
+            }
+
+            var paramValidationDict = parameterInfo.ToDictionary(k => getUrlNameForParameter(k).ToLowerInvariant(), v => v);
+
+            foreach (var match in parameterizedParts) {
+                var name = match.Groups[1].Value.ToLowerInvariant();
+                if (!paramValidationDict.ContainsKey(name)) {
+                    throw new ArgumentException(String.Format("DataAttachmentDescription has parameter {0}, but no method parameter matches", name));
+                }
+
+                var index = parameterInfo.IndexOf(paramValidationDict[name]);
+                if (!this.AttachmentDescriptionParameterMap.ContainsKey(index))
+                    this.AttachmentDescriptionParameterMap.Add(index, name);
+            }
+
         }
 
         Tuple<BodySerializationMethod, int> findBodyParameter(List<ParameterInfo> parameterList, bool isMultipart)
